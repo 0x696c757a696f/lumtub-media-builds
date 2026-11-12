@@ -114,7 +114,7 @@ jobs:
             libexpat1-dev libffi-dev libxml2-dev > /dev/null
           python3 -m pip install --quiet --upgrade meson jinja2 markupsafe
           meson --version
-          ldd --version | head -1
+          ldd --version | sed -n 1p
 
       - uses: actions/checkout@v5
 
