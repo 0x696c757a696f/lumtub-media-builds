@@ -122,13 +122,13 @@ jobs:
       # scripts or sources.env, then restored (FFmpeg alone is most of the
       # build time). ccache covers mpv, which changes a little each day.
       - name: Restore dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /opt/libmpv-work/prefix
           key: libmpv-deps-${{ env.FLAVOR }}-${{ hashFiles('libmpv/sources.env', 'libmpv/linux/common.sh', 'libmpv/linux/deps.sh') }}
 
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /opt/ccache
           key: libmpv-ccache-${{ env.FLAVOR }}-${{ github.run_id }}
