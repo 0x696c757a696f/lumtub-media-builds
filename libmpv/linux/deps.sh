@@ -25,6 +25,8 @@ fetch mbedtls https://github.com/Mbed-TLS/mbedtls.git "$MBEDTLS_REF"
 fetch luajit https://github.com/LuaJIT/LuaJIT.git "$LUAJIT_REF"
 fetch curl https://github.com/curl/curl.git "$CURL_REF"
 fetch nv-codec-headers https://github.com/FFmpeg/nv-codec-headers.git "$NVCODEC_REF"
+fetch libdrm https://gitlab.freedesktop.org/mesa/drm.git "$LIBDRM_REF"
+fetch libdisplay-info https://gitlab.freedesktop.org/emersion/libdisplay-info.git "$LIBDISPLAY_INFO_REF"
 fetch wayland https://gitlab.freedesktop.org/wayland/wayland.git "$WAYLAND_REF"
 fetch wayland-protocols https://gitlab.freedesktop.org/wayland/wayland-protocols.git "$WAYLAND_PROTOCOLS_REF"
 
@@ -35,6 +37,13 @@ meson setup "$src/wayland/build" "$src/wayland" --prefix="$prefix" --libdir=lib 
 ninja -C "$src/wayland/build" -j"$jobs" install
 meson setup "$src/wayland-protocols/build" "$src/wayland-protocols" --prefix="$prefix" --libdir=lib -Dtests=false
 ninja -C "$src/wayland-protocols/build" install
+
+# libdrm (core library only; Mesa keeps using the system's copy) and
+# libdisplay-info, which reads monitor names from /usr/share/hwdata/pnp.ids.
+meson_static "$src/libdrm" -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled \
+  -Dvmwgfx=disabled -Domap=disabled -Dexynos=disabled -Dfreedreno=disabled -Dtegra=disabled -Dvc4=disabled \
+  -Detnaviv=disabled -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dtests=false -Dinstall-test-programs=false
+meson_static "$src/libdisplay-info"
 
 meson_static "$src/dav1d" -Denable_tools=false -Denable_tests=false
 
@@ -108,6 +117,8 @@ lic mbedtls "$src/mbedtls/LICENSE"
 lic luajit "$src/luajit/COPYRIGHT"
 lic wayland "$src/wayland/COPYING"
 lic curl "$src/curl/COPYING"
+lic libdrm "$src/libdrm/xf86drm.h"
+lic libdisplay-info "$src/libdisplay-info/LICENSE"
 echo "ffmpeg_describe=$(git -C "$src/ffmpeg" describe --tags --always)" > "$prefix/deps.txt"
 cp "$work/versions.txt" "$prefix/versions.txt"
 touch "$prefix/.complete"
