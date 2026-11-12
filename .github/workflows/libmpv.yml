@@ -106,7 +106,7 @@ jobs:
             build-essential ccache git ca-certificates curl zstd pkg-config python3 python3-pip ninja-build cmake nasm file binutils xz-utils \
             libx11-dev libxext-dev libxrandr-dev libxss-dev libxpresent-dev libxfixes-dev libxinerama-dev libxkbcommon-dev \
             libegl-dev libgl-dev libgbm-dev libdrm-dev libva-dev libvdpau-dev \
-            libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-jackd2-dev libsndio-dev \
+            libasound2-dev libpulse-dev libjack-jackd2-dev libsndio-dev \
             libfreetype-dev libfribidi-dev libharfbuzz-dev libfontconfig-dev libjpeg-dev liblcms2-dev zlib1g-dev \
             libexpat1-dev libffi-dev libxml2-dev > /dev/null
           python3 -m pip install --quiet --upgrade meson jinja2 markupsafe

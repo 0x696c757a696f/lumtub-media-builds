@@ -36,7 +36,9 @@ rm -rf "$mpvdir"
 : > "$work/versions.txt"
 fetch mpv https://github.com/mpv-player/mpv.git "$MPV_REF"
 
-# libmpv with everything above inside it. --exclude-libs keeps the static
+# libmpv with everything above inside it. PipeWire output needs
+# libpipewire 0.3.57, newer than Ubuntu 22.04 has; PipeWire systems run
+# pipewire-pulse, so the PulseAudio output covers them. --exclude-libs keeps the static
 # libraries' symbols out of libmpv's exports.
 LDFLAGS="-Wl,--exclude-libs,ALL -L$prefix/lib" PKG_CONFIG="$work/bin/pkg-config-static" \
   meson setup "$src/mpv/build" "$src/mpv" --prefix="$mpvdir" --libdir=lib --buildtype=release \
@@ -46,7 +48,7 @@ LDFLAGS="-Wl,--exclude-libs,ALL -L$prefix/lib" PKG_CONFIG="$work/bin/pkg-config-
   -Dlibcurl=enabled -Dzlib=enabled -Diconv=enabled \
   -Dgl=enabled -Degl=enabled -Dx11=enabled -Dwayland=enabled -Ddrm=enabled -Dgbm=enabled \
   -Dvulkan=disabled -Dvaapi=enabled -Dvdpau=enabled -Dcuda-hwaccel=enabled -Dcuda-interop=enabled \
-  -Dalsa=enabled -Dpulse=enabled -Dpipewire=enabled -Djack=enabled -Dsndio=enabled -Dopenal=disabled -Dsdl2-audio=disabled -Dsdl2-video=disabled
+  -Dalsa=enabled -Dpulse=enabled -Dpipewire=disabled -Djack=enabled -Dsndio=enabled -Dopenal=disabled -Dsdl2-audio=disabled -Dsdl2-video=disabled
 ninja -C "$src/mpv/build" -j"$jobs" install
 
 # The package, laid out like the one Lumtub's Linux build used before.
