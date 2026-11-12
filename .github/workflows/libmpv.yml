@@ -1,0 +1,225 @@
+name: libmpv
+run-name: "libmpv ${{ inputs.mpv_ref || 'master' }}${{ (inputs.release || github.event_name == 'schedule') && ' (release)' || '' }}"
+
+# libmpv for Lumtub (Linux; Android, macOS and iOS are switched off for now
+# while ready-made builds serve them), following mpv's master
+# branch the way zhongfly/mpv-winbuild does for Windows, but once a day: the
+# newest mpv commit is compared with the releases here, a new commit is built
+# on every platform, and a run where all builds succeed is published together.
+# Releases older than 30 days are removed, the newest few always stay.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      mpv_ref:
+        description: "mpv commit, tag or branch"
+        required: false
+        default: "master"
+      release:
+        description: "Publish a release"
+        type: boolean
+        default: false
+      force:
+        description: "Build even if this mpv commit was released already"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "libmpv/**"
+      - ".github/workflows/libmpv*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libmpv-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  params:
+    name: Check mpv
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
+      tag: ${{ steps.check.outputs.tag }}
+      build: ${{ steps.check.outputs.build }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.mpv_ref || 'master' }}
+          EVENT: ${{ github.event_name }}
+          RELEASE: ${{ inputs.release }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          [[ $REF =~ ^[0-9A-Za-z._/-]{1,100}$ ]] || { echo "Unexpected mpv ref: $REF"; exit 1; }
+          if [[ $REF =~ ^[0-9a-f]{40}$ ]]; then
+            commit=$REF
+          else
+            commit=$(git ls-remote https://github.com/mpv-player/mpv.git "refs/heads/$REF" "refs/tags/$REF" "refs/tags/$REF^{}" | tail -1 | cut -f1)
+          fi
+          [[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "No mpv commit for $REF"; exit 1; }
+          tag="libmpv-$(date -u +%Y%m%d)-${commit:0:9}"
+          released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' | grep -c -- "-${commit:0:9}$" || true)
+          build=true
+          if [[ $EVENT == schedule && $released != 0 ]]; then build=false; fi
+          if [[ $EVENT == workflow_dispatch && $released != 0 && $FORCE != true && $RELEASE == true ]]; then build=false; fi
+          release=false
+          if [[ $EVENT == schedule || $RELEASE == true ]]; then release=true; fi
+          echo "mpv $REF = $commit; released already: $released; build: $build; release: $release"
+          { echo "commit=$commit"; echo "tag=$tag"; echo "build=$build"; echo "release=$release"; } >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux ${{ matrix.arch }}${{ matrix.level && format('-{0}', matrix.level) || '' }}
+    needs: params
+    if: needs.params.outputs.build == 'true'
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: x86_64
+            level: v3
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      MPV_REF: ${{ needs.params.outputs.commit }}
+      # Fixed paths: the cached prefix's pkg-config files name it.
+      WORK: /opt/libmpv-work
+      CCACHE_DIR: /opt/ccache
+      CCACHE_MAXSIZE: 500M
+      FLAVOR: ${{ matrix.arch }}${{ matrix.level && format('-{0}', matrix.level) || '' }}
+    steps:
+      - name: Install build tools and system libraries
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            build-essential ccache hwdata git ca-certificates curl zstd pkg-config python3 python3-pip ninja-build cmake nasm file binutils xz-utils \
+            libx11-dev libxext-dev libxrandr-dev libxss-dev libxpresent-dev libxfixes-dev libxinerama-dev libxkbcommon-dev \
+            libegl-dev libgl-dev libgbm-dev libdrm-dev libva-dev libvdpau-dev \
+            libasound2-dev libpulse-dev libjack-jackd2-dev libsndio-dev \
+            libfreetype-dev libfribidi-dev libharfbuzz-dev libfontconfig-dev libjpeg-dev liblcms2-dev zlib1g-dev \
+            libexpat1-dev libffi-dev libxml2-dev > /dev/null
+          python3 -m pip install --quiet --upgrade meson jinja2 markupsafe
+          meson --version
+          ldd --version | sed -n 1p
+
+      - uses: actions/checkout@v5
+
+      # Everything but mpv is a pinned release: built once per change of the
+      # scripts or sources.env, then restored (FFmpeg alone is most of the
+      # build time). ccache covers mpv, which changes a little each day.
+      - name: Restore dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /opt/libmpv-work/prefix
+          key: libmpv-deps-${{ env.FLAVOR }}-${{ hashFiles('libmpv/sources.env', 'libmpv/linux/common.sh', 'libmpv/linux/deps.sh') }}
+
+      - name: Restore compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /opt/ccache
+          key: libmpv-ccache-${{ env.FLAVOR }}-${{ github.run_id }}
+          restore-keys: libmpv-ccache-${{ env.FLAVOR }}-
+
+      - name: Build
+        run: |
+          libmpv/linux/build.sh ${{ matrix.arch }} "$RUNNER_TEMP/out" ${{ matrix.level }}
+          ccache --show-stats || true
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          name="libmpv-linux-$FLAVOR-${{ needs.params.outputs.tag }}"
+          mv "$RUNNER_TEMP/out/pkg" "$RUNNER_TEMP/out/$name"
+          tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/out/$name.tar.gz" "$name"
+          ls -l "$RUNNER_TEMP/out/$name/lib"
+          sha256sum "$RUNNER_TEMP/out/$name.tar.gz"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ runner.temp }}/out/${{ steps.package.outputs.name }}.tar.gz
+          if-no-files-found: error
+
+  android:
+    name: Android
+    needs: params
+    # Off for now; set the repository variable LIBMPV_ANDROID to true to build it.
+    if: needs.params.outputs.build == 'true' && vars.LIBMPV_ANDROID == 'true'
+    uses: ./.github/workflows/libmpv-android.yml
+    with:
+      mpv_commit: ${{ needs.params.outputs.commit }}
+      tag: ${{ needs.params.outputs.tag }}
+
+  apple:
+    name: Apple
+    needs: params
+    # Off for now; set the repository variable LIBMPV_APPLE to true to build it.
+    if: needs.params.outputs.build == 'true' && vars.LIBMPV_APPLE == 'true'
+    uses: ./.github/workflows/libmpv-apple.yml
+    with:
+      mpv_commit: ${{ needs.params.outputs.commit }}
+      tag: ${{ needs.params.outputs.tag }}
+
+  release:
+    name: Publish
+    needs: [params, linux, android, apple]
+    # Platforms that are switched off are skipped, not failed.
+    if: >-
+      always() && needs.params.outputs.release == 'true' && needs.params.outputs.build == 'true' &&
+      needs.linux.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          pattern: libmpv-*
+          merge-multiple: true
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.params.outputs.tag }}
+          COMMIT: ${{ needs.params.outputs.commit }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          {
+            echo "libmpv built from mpv commit [\`${COMMIT:0:9}\`](https://github.com/mpv-player/mpv/commit/$COMMIT)."
+            echo
+            echo "| File | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum file; do echo "| $file | \`$sum\` |"; done < SHA256SUMS
+          } > ../notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file ../notes.md --target "$GITHUB_SHA" -- *
+
+      - name: Remove releases older than 30 days
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("libmpv-"))] | sort_by(.createdAt) | reverse | .[5:] | .[] | select(.createdAt < "'"$cutoff"'") | .tagName' |
+          while read -r tag; do
+            echo "Removing $tag"
+            gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done
