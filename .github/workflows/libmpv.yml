@@ -9,7 +9,7 @@ run-name: "libmpv ${{ inputs.mpv_ref || 'master' }}${{ (inputs.release || github
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       mpv_ref:
