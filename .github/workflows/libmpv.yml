@@ -79,6 +79,9 @@ jobs:
     if: needs.params.outputs.build == 'true'
     runs-on: ${{ matrix.runner }}
     container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
