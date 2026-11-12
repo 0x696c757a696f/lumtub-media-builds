@@ -74,7 +74,7 @@ jobs:
           { echo "commit=$commit"; echo "tag=$tag"; echo "build=$build"; echo "release=$release"; } >> "$GITHUB_OUTPUT"
 
   linux:
-    name: Linux ${{ matrix.arch }}
+    name: Linux ${{ matrix.arch }}${{ matrix.level && format('-{0}', matrix.level) || '' }}
     needs: params
     if: needs.params.outputs.build == 'true'
     runs-on: ${{ matrix.runner }}
@@ -85,17 +85,25 @@ jobs:
         include:
           - arch: x86_64
             runner: ubuntu-24.04
+          - arch: x86_64
+            level: v3
+            runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
     env:
       DEBIAN_FRONTEND: noninteractive
       MPV_REF: ${{ needs.params.outputs.commit }}
+      # Fixed paths: the cached prefix's pkg-config files name it.
+      WORK: /opt/libmpv-work
+      CCACHE_DIR: /opt/ccache
+      CCACHE_MAXSIZE: 500M
+      FLAVOR: ${{ matrix.arch }}${{ matrix.level && format('-{0}', matrix.level) || '' }}
     steps:
       - name: Install build tools and system libraries
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-            build-essential git ca-certificates curl pkg-config python3 python3-pip ninja-build cmake nasm file binutils xz-utils \
+            build-essential ccache git ca-certificates curl zstd pkg-config python3 python3-pip ninja-build cmake nasm file binutils xz-utils \
             libx11-dev libxext-dev libxrandr-dev libxss-dev libxpresent-dev libxfixes-dev libxinerama-dev libxkbcommon-dev \
             libegl-dev libgl-dev libgbm-dev libdrm-dev libva-dev libvdpau-dev \
             libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-jackd2-dev libsndio-dev \
@@ -107,14 +115,32 @@ jobs:
 
       - uses: actions/checkout@v5
 
+      # Everything but mpv is a pinned release: built once per change of the
+      # scripts or sources.env, then restored (FFmpeg alone is most of the
+      # build time). ccache covers mpv, which changes a little each day.
+      - name: Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: /opt/libmpv-work/prefix
+          key: libmpv-deps-${{ env.FLAVOR }}-${{ hashFiles('libmpv/sources.env', 'libmpv/linux/common.sh', 'libmpv/linux/deps.sh') }}
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/ccache
+          key: libmpv-ccache-${{ env.FLAVOR }}-${{ github.run_id }}
+          restore-keys: libmpv-ccache-${{ env.FLAVOR }}-
+
       - name: Build
-        run: libmpv/linux/build.sh ${{ matrix.arch }} "$RUNNER_TEMP/out"
+        run: |
+          libmpv/linux/build.sh ${{ matrix.arch }} "$RUNNER_TEMP/out" ${{ matrix.level }}
+          ccache --show-stats || true
 
       - name: Package
         id: package
         run: |
           set -euo pipefail
-          name="libmpv-linux-${{ matrix.arch }}-${{ needs.params.outputs.tag }}"
+          name="libmpv-linux-$FLAVOR-${{ needs.params.outputs.tag }}"
           mv "$RUNNER_TEMP/out/pkg" "$RUNNER_TEMP/out/$name"
           tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/out/$name.tar.gz" "$name"
           ls -l "$RUNNER_TEMP/out/$name/lib"
