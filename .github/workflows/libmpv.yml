@@ -27,7 +27,7 @@ on:
   pull_request:
     paths:
       - "libmpv/**"
-      - ".github/workflows/libmpv.yml"
+      - ".github/workflows/libmpv*.yml"
 
 permissions:
   contents: read
@@ -126,9 +126,27 @@ jobs:
           path: ${{ runner.temp }}/out/${{ steps.package.outputs.name }}.tar.gz
           if-no-files-found: error
 
+  android:
+    name: Android
+    needs: params
+    if: needs.params.outputs.build == 'true'
+    uses: ./.github/workflows/libmpv-android.yml
+    with:
+      mpv_commit: ${{ needs.params.outputs.commit }}
+      tag: ${{ needs.params.outputs.tag }}
+
+  apple:
+    name: Apple
+    needs: params
+    if: needs.params.outputs.build == 'true'
+    uses: ./.github/workflows/libmpv-apple.yml
+    with:
+      mpv_commit: ${{ needs.params.outputs.commit }}
+      tag: ${{ needs.params.outputs.tag }}
+
   release:
     name: Publish
-    needs: [params, linux]
+    needs: [params, linux, android, apple]
     if: needs.params.outputs.release == 'true' && needs.params.outputs.build == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -148,15 +166,15 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum -- *.tar.gz > SHA256SUMS
+          sha256sum -- * > SHA256SUMS
           {
             echo "libmpv built from mpv commit [\`${COMMIT:0:9}\`](https://github.com/mpv-player/mpv/commit/$COMMIT)."
             echo
             echo "| File | SHA-256 |"
             echo "| --- | --- |"
             while read -r sum file; do echo "| $file | \`$sum\` |"; done < SHA256SUMS
-          } > notes.md
-          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA" -- *.tar.gz SHA256SUMS
+          } > ../notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file ../notes.md --target "$GITHUB_SHA" -- *
 
       - name: Remove releases older than 30 days
         env:

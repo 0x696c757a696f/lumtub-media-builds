@@ -1,0 +1,20 @@
+name: libmpv apple
+
+on:
+  workflow_call:
+    inputs:
+      mpv_commit:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "libmpv apple ${{ inputs.mpv_commit }}"

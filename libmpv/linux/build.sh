@@ -117,7 +117,7 @@ decoders=(
   aac aac_latm aac_fixed opus libopus mp3 mp3float mp2 vorbis flac alac ac3 eac3 dca truehd
   pcm_s16le pcm_s16be pcm_s24le pcm_s32le pcm_f32le pcm_u8 pcm_alaw pcm_mulaw
   avif
-  webvtt subrip srt ass ssa mov_text text dvbsub dvdsub pgssub
+  webvtt subrip srt ass ssa movtext text dvbsub dvdsub pgssub
 )
 mapfile -t known < <("$src/ffmpeg/configure" --list-decoders | tr -s ' \t' '\n' | grep .)
 enable=()
@@ -128,7 +128,7 @@ mkdir -p "$src/ffmpeg/build"
 (cd "$src/ffmpeg/build" && ../configure --prefix="$prefix" --pkg-config="$work/bin/pkg-config-static" \
   --enable-static --disable-shared --enable-pic --disable-programs --disable-doc --disable-debug \
   --disable-autodetect --disable-encoders --disable-muxers --disable-devices --disable-decoders \
-  --disable-hwaccels --disable-postproc \
+  --disable-hwaccels \
   "${enable[@]}" --enable-encoder=png --enable-encoder=mjpeg \
   --enable-libdav1d --enable-mbedtls --enable-version3 --enable-zlib --enable-iconv \
   --enable-vaapi --enable-vdpau --enable-libdrm \
