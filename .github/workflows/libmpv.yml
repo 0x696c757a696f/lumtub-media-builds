@@ -1,11 +1,11 @@
 name: libmpv
 run-name: "libmpv ${{ inputs.mpv_ref || 'master' }}${{ (inputs.release || github.event_name == 'schedule') && ' (release)' || '' }}"
 
-# libmpv for Lumtub's Linux build, following mpv's master branch the way
-# zhongfly/mpv-winbuild does for Windows: every hour the newest mpv commit is
-# compared with the newest release here, a new commit is built, and a build
-# that succeeds is published. Releases older than 30 days are removed, the
-# newest few always stay.
+# libmpv for Lumtub on Linux, Android, macOS and iOS, following mpv's master
+# branch the way zhongfly/mpv-winbuild does for Windows, but once a day: the
+# newest mpv commit is compared with the releases here, a new commit is built
+# on every platform, and a run where all builds succeed is published together.
+# Releases older than 30 days are removed, the newest few always stay.
 
 on:
   schedule:
