@@ -1,7 +1,8 @@
 name: libmpv
 run-name: "libmpv ${{ inputs.mpv_ref || 'master' }}${{ (inputs.release || github.event_name == 'schedule') && ' (release)' || '' }}"
 
-# libmpv for Lumtub on Linux, Android, macOS and iOS, following mpv's master
+# libmpv for Lumtub (Linux; Android, macOS and iOS are switched off for now
+# while ready-made builds serve them), following mpv's master
 # branch the way zhongfly/mpv-winbuild does for Windows, but once a day: the
 # newest mpv commit is compared with the releases here, a new commit is built
 # on every platform, and a run where all builds succeed is published together.
@@ -129,7 +130,8 @@ jobs:
   android:
     name: Android
     needs: params
-    if: needs.params.outputs.build == 'true'
+    # Off for now; set the repository variable LIBMPV_ANDROID to true to build it.
+    if: needs.params.outputs.build == 'true' && vars.LIBMPV_ANDROID == 'true'
     uses: ./.github/workflows/libmpv-android.yml
     with:
       mpv_commit: ${{ needs.params.outputs.commit }}
@@ -138,7 +140,8 @@ jobs:
   apple:
     name: Apple
     needs: params
-    if: needs.params.outputs.build == 'true'
+    # Off for now; set the repository variable LIBMPV_APPLE to true to build it.
+    if: needs.params.outputs.build == 'true' && vars.LIBMPV_APPLE == 'true'
     uses: ./.github/workflows/libmpv-apple.yml
     with:
       mpv_commit: ${{ needs.params.outputs.commit }}
@@ -147,7 +150,10 @@ jobs:
   release:
     name: Publish
     needs: [params, linux, android, apple]
-    if: needs.params.outputs.release == 'true' && needs.params.outputs.build == 'true'
+    # Platforms that are switched off are skipped, not failed.
+    if: >-
+      always() && needs.params.outputs.release == 'true' && needs.params.outputs.build == 'true' &&
+      needs.linux.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: write

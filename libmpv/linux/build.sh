@@ -74,6 +74,7 @@ fetch libplacebo https://github.com/haasn/libplacebo.git "$LIBPLACEBO_REF"
 fetch mbedtls https://github.com/Mbed-TLS/mbedtls.git "$MBEDTLS_REF"
 fetch luajit https://github.com/LuaJIT/LuaJIT.git "$LUAJIT_REF"
 fetch curl https://github.com/curl/curl.git "$CURL_REF"
+fetch nv-codec-headers https://github.com/FFmpeg/nv-codec-headers.git "$NVCODEC_REF"
 fetch wayland https://gitlab.freedesktop.org/wayland/wayland.git "$WAYLAND_REF"
 fetch wayland-protocols https://gitlab.freedesktop.org/wayland/wayland-protocols.git "$WAYLAND_PROTOCOLS_REF"
 
@@ -124,6 +125,8 @@ enable=()
 for d in "${decoders[@]}"; do
   printf '%s\n' "${known[@]}" | grep -qx "$d" && enable+=("--enable-decoder=$d") || echo "FFmpeg has no decoder $d; skipped"
 done
+make -C "$src/nv-codec-headers" PREFIX="$prefix" install > /dev/null
+
 mkdir -p "$src/ffmpeg/build"
 (cd "$src/ffmpeg/build" && ../configure --prefix="$prefix" --pkg-config="$work/bin/pkg-config-static" \
   --enable-static --disable-shared --enable-pic --disable-programs --disable-doc --disable-debug \
@@ -136,6 +139,9 @@ mkdir -p "$src/ffmpeg/build"
   --enable-hwaccel=av1_vaapi --enable-hwaccel=mpeg2_vaapi --enable-hwaccel=vc1_vaapi \
   --enable-hwaccel=h264_vdpau --enable-hwaccel=hevc_vdpau --enable-hwaccel=vp9_vdpau --enable-hwaccel=av1_vdpau \
   --enable-hwaccel=mpeg2_vdpau --enable-hwaccel=vc1_vdpau \
+  --enable-ffnvcodec --enable-nvdec \
+  --enable-hwaccel=h264_nvdec --enable-hwaccel=hevc_nvdec --enable-hwaccel=vp8_nvdec --enable-hwaccel=vp9_nvdec \
+  --enable-hwaccel=av1_nvdec --enable-hwaccel=mpeg2_nvdec --enable-hwaccel=vc1_nvdec \
   --extra-cflags="$CFLAGS -I$prefix/include" --extra-ldflags="-L$prefix/lib")
 make -C "$src/ffmpeg/build" -j"$jobs"
 make -C "$src/ffmpeg/build" install
@@ -149,7 +155,7 @@ LDFLAGS="-Wl,--exclude-libs,ALL -L$prefix/lib" PKG_CONFIG="$work/bin/pkg-config-
   -Duchardet=disabled -Drubberband=disabled -Dzimg=disabled -Dvapoursynth=disabled -Dlcms2=enabled -Djpeg=enabled \
   -Dlibcurl=enabled -Dzlib=enabled -Diconv=enabled \
   -Dgl=enabled -Degl=enabled -Dx11=enabled -Dwayland=enabled -Ddrm=enabled -Dgbm=enabled \
-  -Dvulkan=disabled -Dvaapi=enabled -Dvdpau=enabled \
+  -Dvulkan=disabled -Dvaapi=enabled -Dvdpau=enabled -Dcuda-hwaccel=enabled -Dcuda-interop=enabled \
   -Dalsa=enabled -Dpulse=enabled -Dpipewire=enabled -Djack=enabled -Dsndio=enabled -Dopenal=disabled -Dsdl2-audio=disabled -Dsdl2-video=disabled
 ninja -C "$src/mpv/build" -j"$jobs" install
 
@@ -188,6 +194,7 @@ fi
 lic() { local name=$1; shift; for f in "$@"; do [[ -f $f ]] && { cp "$f" "$pkg/licenses/$name-$(basename "$f")"; return; }; done; echo "no license file for $name" >&2; exit 1; }
 lic mpv "$src/mpv/LICENSE.GPL"
 lic ffmpeg "$src/ffmpeg/COPYING.LGPLv3"
+lic nv-codec-headers "$src/nv-codec-headers/include/ffnvcodec/dynlink_loader.h"
 lic dav1d "$src/dav1d/COPYING"
 lic libass "$src/libass/COPYING"
 lic libplacebo "$src/libplacebo/LICENSE"
