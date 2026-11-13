@@ -116,7 +116,7 @@ jobs:
           meson --version
           ldd --version | sed -n 1p
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Everything but mpv is a pinned release: built once per change of the
       # scripts or sources.env, then restored (FFmpeg alone is most of the
@@ -150,7 +150,7 @@ jobs:
           sha256sum "$RUNNER_TEMP/out/$name.tar.gz"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.name }}
           path: ${{ runner.temp }}/out/${{ steps.package.outputs.name }}.tar.gz
@@ -187,7 +187,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: libmpv-*
