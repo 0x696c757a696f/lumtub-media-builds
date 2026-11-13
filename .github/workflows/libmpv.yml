@@ -40,7 +40,7 @@ concurrency:
 jobs:
   params:
     name: Check mpv
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       commit: ${{ steps.check.outputs.commit }}
       tag: ${{ steps.check.outputs.tag }}
@@ -183,7 +183,7 @@ jobs:
     if: >-
       always() && needs.params.outputs.release == 'true' && needs.params.outputs.build == 'true' &&
       needs.linux.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
