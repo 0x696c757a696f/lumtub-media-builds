@@ -44,7 +44,7 @@ on:
 
 jobs:
   params:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.script.outputs.matrix }}
       cache_suffix: ${{ steps.suffix.outputs.cache_suffix }}
@@ -82,7 +82,7 @@ jobs:
   build:
     name: Build Toolchain
     needs: [params]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true
@@ -166,7 +166,7 @@ jobs:
   rust:
     name: Install Rust Toolchain
     needs: [params]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true
@@ -206,7 +206,7 @@ jobs:
   trigger:
     needs: [build,params,rust]
     if: ${{ always() && inputs.trigger_build != false && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
 
@@ -270,7 +270,7 @@ jobs:
     name: keep llvm cache alive
     needs: [build,params]
     if: ${{ always() && inputs.compiler =='clang' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true

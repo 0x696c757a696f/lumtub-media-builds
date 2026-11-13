@@ -35,7 +35,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +86,7 @@ jobs:
 
   samples:
     name: Make test media
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Encode short clips like YouTube's streams
         run: |
@@ -151,7 +151,7 @@ jobs:
     name: Publish
     needs: check
     if: ${{ inputs.release }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

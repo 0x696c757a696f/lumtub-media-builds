@@ -53,7 +53,7 @@ on:
 
 jobs:
   params:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.script.outputs.sha }}
       matrix: ${{ steps.script.outputs.matrix }}
@@ -154,7 +154,7 @@ jobs:
   build_mpv:
     name: Build YTPlus libmpv - ${{ matrix.bit }}
     needs: params
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true
@@ -576,7 +576,7 @@ jobs:
     name: Publish release
     needs: [build_mpv,params]
     if: ${{ inputs.release == true }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write
       attestations: write
@@ -711,7 +711,7 @@ jobs:
     name: keep cache alive
     needs: [params,build_mpv]
     if: ${{ inputs.no_save_cache != true }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true
@@ -758,7 +758,7 @@ jobs:
     name: keep llvm cache alive
     needs: [params,build_mpv]
     if: ${{ inputs.no_save_cache != true && inputs.compiler =='clang' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/archlinux/archlinux:base-devel
     continue-on-error: true
