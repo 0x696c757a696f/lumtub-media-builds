@@ -1,0 +1,103 @@
+name: libmpv iOS
+run-name: "libmpv iOS (lumtub ${{ inputs.lumtub_ref || 'main' }})"
+
+# MPVKit's libmpv for iPhone and iPad (arm64) built again with Lumtub's
+# patches (the avfoundation video output that iOS picture in picture needs).
+# The recipe lives in Lumtub (vendor/media_kit_libs_ios_video/ios:
+# mpvkit.lock, build_libmpv.sh, patch/): it is read from Lumtub's main
+# branch once a day, and built when no release here has it yet. A release is
+# named after the MPVKit release and a hash of those files, the name
+# Lumtub's build looks for; Lumtub pins its checksum in .github/pins.env.
+
+on:
+  schedule:
+    - cron: "47 4 * * *"
+  workflow_dispatch:
+    inputs:
+      lumtub_ref:
+        description: "Lumtub branch, tag or commit to read the recipe from"
+        required: false
+        default: "main"
+  push:
+    paths:
+      - ".github/workflows/libmpv-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libmpv-ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: libmpv iOS arm64
+    # Intel runners: Apple silicon ones were often unavailable for hours.
+    runs-on: macos-15-intel
+    permissions:
+      contents: write
+    env:
+      RECIPE: vendor/media_kit_libs_ios_video/ios
+    steps:
+      - name: Read the recipe from Lumtub
+        env:
+          REF: ${{ inputs.lumtub_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          [[ $REF =~ ^[0-9A-Za-z._/-]{1,100}$ ]] || { echo "Unexpected ref: $REF"; exit 1; }
+          git init -q lumtub
+          cd lumtub
+          git remote add origin https://github.com/0x696c757a696f/lumtub.git
+          git sparse-checkout set --no-cone "/$RECIPE/"
+          git fetch -q --depth 1 --filter=blob:none origin -- "$REF"
+          git checkout -q FETCH_HEAD
+          git log -1 --format='Lumtub %H'
+          ls -la "$RECIPE" "$RECIPE/patch"
+
+      - name: Name the release
+        id: name
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "lumtub/$RECIPE"
+          release=$(awk '$1 == "Libmpv" { print $3 }' mpvkit.lock | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p')
+          [ -n "$release" ] || { echo "No Libmpv in mpvkit.lock"; exit 1; }
+          # The same name Lumtub's build.yml works out.
+          inputs=$(cat mpvkit.lock build_libmpv.sh patch/*.patch | shasum -a 256 | cut -c1-10)
+          tag="libmpv-ios-$release-$inputs"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            echo "$tag is released already."
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Building $tag."
+          fi
+
+      - name: Build libmpv
+        if: steps.name.outputs.built != 'true'
+        run: |
+          set -euo pipefail
+          bash "lumtub/$RECIPE/build_libmpv.sh" "lumtub/$RECIPE/mpvkit.lock" "$RUNNER_TEMP/libmpv"
+
+      - name: Package
+        if: steps.name.outputs.built != 'true'
+        env:
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -C "$RUNNER_TEMP/libmpv" -czf "dist/$TAG.tar.gz" libmpv.a include release.txt
+          (cd dist && shasum -a 256 -- "$TAG.tar.gz" | tee "$TAG.tar.gz.sha256")
+
+      - name: Publish
+        if: steps.name.outputs.built != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          lumtub=$(git -C lumtub rev-parse HEAD)
+          printf 'MPVKit libmpv for iOS (arm64) with Lumtub'"'"'s patches, from Lumtub %s.\n' "$lumtub" > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA" -- dist/*
