@@ -1,0 +1,104 @@
+name: ANGLE Windows arm64
+
+# ANGLE (libEGL.dll, libGLESv2.dll and their import libraries) for Windows
+# on Arm, built by vcpkg. media_kit publishes ANGLE only for x64, and the
+# vcpkg build takes most of an hour, so Lumtub downloads it from here.
+# Once a day the vcpkg angle port's version is read; a release named after
+# it (angle-arm64-windows-<version>-<port version>) is built when missing.
+# Lumtub pins its checksum in .github/pins.env.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/angle-windows-arm64.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: angle-windows-arm64-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ANGLE arm64-windows
+    runs-on: windows-11-arm
+    permissions:
+      contents: write
+    steps:
+      - name: Prepare vcpkg
+        id: vcpkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone -q --depth 1 https://github.com/microsoft/vcpkg $root
+          if ($LASTEXITCODE -ne 0) { throw 'Could not clone vcpkg.' }
+          $port = Get-Content -Raw -LiteralPath (Join-Path $root 'ports/angle/vcpkg.json') | ConvertFrom-Json
+          $version = "$($port.'version-string')-$([int]$port.'port-version')"
+          if ($version -notmatch '^[0-9A-Za-z._-]{1,60}$') { throw "Unexpected angle version: $version" }
+          $commit = (git -C $root rev-parse HEAD).Trim()
+          "root=$root" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "commit=$commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tag=angle-arm64-windows-$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "vcpkg $commit, angle $version"
+
+      - name: Released already?
+        id: released
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.vcpkg.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            echo "$TAG is released already."
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Building $TAG."
+          fi
+
+      - name: Build ANGLE
+        if: steps.released.outputs.built != 'true'
+        shell: pwsh
+        env:
+          VCPKG_ROOT_DIR: ${{ steps.vcpkg.outputs.root }}
+          TAG: ${{ steps.vcpkg.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:VCPKG_ROOT_DIR 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed.' }
+          & (Join-Path $env:VCPKG_ROOT_DIR 'vcpkg.exe') install angle:arm64-windows --clean-after-build
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg could not build ANGLE for arm64.' }
+          $installed = Join-Path $env:VCPKG_ROOT_DIR 'installed/arm64-windows'
+          $out = Join-Path $env:RUNNER_TEMP $env:TAG
+          New-Item -ItemType Directory -Force -Path (Join-Path $out 'lib') | Out-Null
+          Copy-Item (Join-Path $installed 'bin/*.dll') $out
+          foreach ($name in 'libEGL', 'libGLESv2') {
+            if (-not (Test-Path -LiteralPath (Join-Path $out "$name.dll"))) { throw "vcpkg produced no $name.dll." }
+            $lib = Get-ChildItem -LiteralPath (Join-Path $installed 'lib') -Filter "$name*.lib" -File | Select-Object -First 1
+            if (-not $lib) { throw "vcpkg produced no $name import library." }
+            Copy-Item -LiteralPath $lib.FullName (Join-Path $out "lib/$name.dll.lib")
+          }
+          Copy-Item -LiteralPath (Join-Path $installed 'share/angle/copyright') (Join-Path $out 'LICENSE.txt') -ErrorAction SilentlyContinue
+          Get-ChildItem -Recurse $out | ForEach-Object { Write-Host $_.FullName }
+
+      - name: Package and publish
+        if: steps.released.outputs.built != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.vcpkg.outputs.tag }}
+          VCPKG_COMMIT: ${{ steps.vcpkg.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Through a pipe: GNU tar reads "D:" in a path as a remote host.
+          (cd "$RUNNER_TEMP/$TAG" && tar -czf - .) > "dist/$TAG.tar.gz"
+          (cd dist && sha256sum -- "$TAG.tar.gz" | tee "$TAG.tar.gz.sha256")
+          printf 'ANGLE for Windows on Arm (arm64), built by vcpkg %s.\n' "$VCPKG_COMMIT" > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA" -- dist/*
