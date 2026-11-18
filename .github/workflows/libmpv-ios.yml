@@ -1,0 +1,80 @@
+name: libmpv iOS
+run-name: "libmpv iOS ${{ github.ref_name }}"
+
+# MPVKit's libmpv for iPhone and iPad (arm64) built again with Lumtub's
+# patches (libmpv/ios/patch: the avfoundation video output that iOS picture
+# in picture needs). FFmpeg and the other libraries stay MPVKit's prebuilt
+# ones, so only libmpv is compiled. Published as a release named after the
+# MPVKit release and a hash of the build's inputs, so the same inputs are
+# built once; Lumtub pins its name and SHA-256 in .github/pins.env.
+
+on:
+  push:
+    paths:
+      - "libmpv/ios/**"
+      - ".github/workflows/libmpv-ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libmpv-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: libmpv iOS arm64
+    # Intel runners: Apple silicon ones were often unavailable for hours.
+    runs-on: macos-15-intel
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Name the release
+        id: name
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd libmpv/ios
+          release=$(awk '$1 == "Libmpv" { print $3 }' mpvkit.lock | sed -n 's#.*/releases/download/\([^/]*\)/.*#\1#p')
+          inputs=$(cat mpvkit.lock build_libmpv.sh patch/*.patch | shasum -a 256 | cut -c1-10)
+          tag="libmpv-ios-$release-$inputs"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            echo "$tag is released already."
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Building $tag."
+          fi
+
+      - name: Build libmpv
+        if: steps.name.outputs.built != 'true'
+        run: |
+          set -euo pipefail
+          bash libmpv/ios/build_libmpv.sh libmpv/ios/mpvkit.lock "$RUNNER_TEMP/libmpv"
+
+      - name: Package
+        if: steps.name.outputs.built != 'true'
+        env:
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -C "$RUNNER_TEMP/libmpv" -czf "dist/$TAG.tar.gz" libmpv.a include release.txt
+          (cd dist && shasum -a 256 -- "$TAG.tar.gz" | tee "$TAG.tar.gz.sha256")
+
+      - name: Publish
+        if: steps.name.outputs.built != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          printf 'MPVKit libmpv for iOS (arm64) with the patches in libmpv/ios/patch, built from %s.\n' "$GITHUB_SHA" > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA" -- dist/*
