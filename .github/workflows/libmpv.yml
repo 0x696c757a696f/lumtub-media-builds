@@ -104,14 +104,25 @@ jobs:
     steps:
       - name: Install build tools and system libraries
         run: |
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends \
+          # The hosted runners sit in Azure, whose Ubuntu mirror is fast; the
+          # main archive can crawl (47 kB/s on 2026-11-19). Start on the Azure
+          # mirror, go back to the main archive if it fails, and give every
+          # attempt a time limit so a stalled mirror can't hold the job.
+          # arm64 uses ports.ubuntu.com, which none of this touches.
+          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80retries
+          sed -i 's#http://\(archive\|security\).ubuntu.com#http://azure.archive.ubuntu.com#' /etc/apt/sources.list
+          for attempt in 1 2 3; do
+            timeout 300 apt-get update -qq && timeout 900 apt-get install -y -qq --no-install-recommends \
             build-essential ccache hwdata git ca-certificates curl zstd pkg-config python3 python3-pip ninja-build cmake nasm file binutils xz-utils \
             libx11-dev libxext-dev libxrandr-dev libxss-dev libxpresent-dev libxfixes-dev libxinerama-dev libxkbcommon-dev \
             libegl-dev libgl-dev libgbm-dev libdrm-dev libva-dev libvdpau-dev \
             libasound2-dev libpulse-dev libjack-jackd2-dev libsndio-dev \
             libfreetype-dev libfribidi-dev libharfbuzz-dev libfontconfig-dev libjpeg-dev liblcms2-dev zlib1g-dev \
-            libexpat1-dev libffi-dev libxml2-dev > /dev/null
+            libexpat1-dev libffi-dev libxml2-dev > /dev/null && break
+            [ "$attempt" = 3 ] && exit 1
+            [ "$attempt" = 1 ] && sed -i 's#http://azure.archive.ubuntu.com#http://archive.ubuntu.com#' /etc/apt/sources.list
+            sleep 10
+          done
           python3 -m pip install --quiet --upgrade meson jinja2 markupsafe
           meson --version
           ldd --version | sed -n 1p
