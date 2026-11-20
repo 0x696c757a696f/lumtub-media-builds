@@ -39,16 +39,19 @@ fetch mpv https://github.com/mpv-player/mpv.git "$MPV_REF"
 # libmpv with everything above inside it. PipeWire output needs
 # libpipewire 0.3.57, newer than Ubuntu 22.04 has; PipeWire systems run
 # pipewire-pulse, so the PulseAudio output covers them. --exclude-libs keeps the static
-# libraries' symbols out of libmpv's exports.
+# libraries' symbols out of libmpv's exports. gpl=false keeps libmpv under
+# the LGPL (FFmpeg is LGPL too, see deps.sh): mpv's X11 and JACK code is
+# GPL-only, and VDPAU needs X11, so they go. VA-API on X11 then gets the
+# GPU's render node from Lumtub (MPV_RENDER_PARAM_DRM_DISPLAY_V2).
 LDFLAGS="-Wl,--exclude-libs,ALL -L$prefix/lib" PKG_CONFIG="$work/bin/pkg-config-static" \
   meson setup "$src/mpv/build" "$src/mpv" --prefix="$mpvdir" --libdir=lib --buildtype=release \
-  -Dlibmpv=true -Dcplayer=false -Dtests=false -Dfuzzers=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled \
+  -Dgpl=false -Dlibmpv=true -Dcplayer=false -Dtests=false -Dfuzzers=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled \
   -Dlua=luajit -Djavascript=disabled -Dlibarchive=disabled -Dlibbluray=disabled -Ddvdnav=disabled -Dcdda=disabled \
   -Duchardet=disabled -Drubberband=disabled -Dzimg=disabled -Dvapoursynth=disabled -Dlcms2=enabled -Djpeg=enabled \
   -Dlibcurl=enabled -Dzlib=enabled -Diconv=enabled \
-  -Dgl=enabled -Degl=enabled -Dx11=enabled -Dwayland=enabled -Ddrm=enabled -Dgbm=enabled \
-  -Dvulkan=disabled -Dvaapi=enabled -Dvdpau=enabled -Dcuda-hwaccel=enabled -Dcuda-interop=enabled \
-  -Dalsa=enabled -Dpulse=enabled -Dpipewire=disabled -Djack=enabled -Dsndio=enabled -Dopenal=disabled -Dsdl2-audio=disabled -Dsdl2-video=disabled
+  -Dgl=enabled -Degl=enabled -Dx11=disabled -Dwayland=enabled -Ddrm=enabled -Dgbm=enabled \
+  -Dvulkan=disabled -Dvaapi=enabled -Dvdpau=disabled -Dcuda-hwaccel=enabled -Dcuda-interop=enabled \
+  -Dalsa=enabled -Dpulse=enabled -Dpipewire=disabled -Djack=disabled -Dsndio=enabled -Dopenal=disabled -Dsdl2-audio=disabled -Dsdl2-video=disabled
 ninja -C "$src/mpv/build" -j"$jobs" install
 
 # The package, laid out like the one Lumtub's Linux build used before.
@@ -84,7 +87,7 @@ if LD_LIBRARY_PATH=$pkg/lib ldd "$pkg/lib/libmpv.so" | grep 'not found'; then
 fi
 
 cp "$prefix"/licenses/* "$pkg/licenses/"
-cp "$src/mpv/LICENSE.GPL" "$pkg/licenses/mpv-LICENSE.GPL"
+cp "$src/mpv/LICENSE.LGPL" "$pkg/licenses/mpv-LICENSE.LGPL"
 cat "$prefix/versions.txt" "$work/versions.txt" > "$pkg/licenses/sources.txt"
 
 mpv_commit=$(git -C "$src/mpv" rev-parse HEAD)
@@ -100,7 +103,7 @@ libmpv_version=$mpv_version
 ffmpeg=$(sed -n 's/^ffmpeg_describe=//p' "$prefix/deps.txt")
 built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 newest_glibc_symbol=$glibc
-license=GPL-2.0-or-later
+license=LGPL-2.1-or-later
 linux_bundled_deps=yes
 EOF
 cat "$pkg/manifest.txt"
