@@ -1,0 +1,119 @@
+name: Python for 32-bit Arm Android
+run-name: "Python for 32-bit Arm Android (lumtub ${{ inputs.lumtub_ref || 'main' }})"
+
+# CPython for armeabi-v7a, which python.org does not publish, built by
+# CPython's own Android/android.py. The recipe lives in Lumtub
+# (android/packaging/python-arm32.sh and the PYTHON_ANDROID_* lines of
+# .github/pins.env): it is read from Lumtub's main branch once a day, and
+# built when no release here has it yet. A release is named by
+# `python-arm32.sh --name`, the name Lumtub's build looks for; Lumtub pins
+# its checksum in .github/pins.env.
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      lumtub_ref:
+        description: "Lumtub branch, tag or commit to read the recipe from"
+        required: false
+        default: "main"
+  push:
+    paths:
+      - ".github/workflows/python-android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: CPython armeabi-v7a
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Read the recipe from Lumtub
+        env:
+          REF: ${{ inputs.lumtub_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          [[ $REF =~ ^[0-9A-Za-z._/-]{1,100}$ ]] || { echo "Unexpected ref: $REF"; exit 1; }
+          git init -q lumtub
+          cd lumtub
+          git remote add origin https://github.com/0x696c757a696f/lumtub.git
+          git sparse-checkout set --no-cone /android/packaging/python-arm32.sh /.github/pins.env
+          git fetch -q --depth 1 --filter=blob:none origin -- "$REF"
+          git checkout -q FETCH_HEAD
+          git log -1 --format='Lumtub %H'
+          if [ ! -f android/packaging/python-arm32.sh ]; then
+            echo "::notice::Lumtub $REF has no android/packaging/python-arm32.sh yet; nothing to build."
+            echo "SKIP=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          grep -E '^PYTHON_ANDROID_(VERSION|SOURCE_COMMIT|ARM32_DEPS)=' .github/pins.env | tee -a "$GITHUB_ENV"
+
+      - name: Name the release
+        id: name
+        if: env.SKIP != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(bash lumtub/android/packaging/python-arm32.sh --name)
+          [[ $tag =~ ^python-android-arm32-[0-9.]+-[0-9a-f]{10}$ ]] || { echo "Unexpected name: $tag"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            echo "$tag is released already."
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Building $tag."
+          fi
+
+      - name: Install build tools
+        if: env.SKIP != 'true' && steps.name.outputs.built != 'true'
+        run: |
+          # The libraries the build machine's Python (which builds the
+          # Android one) wants. Start on the Azure Ubuntu mirror the hosted
+          # runners sit next to, go back to the main archive if it fails, and
+          # give every attempt a time limit so a stalled mirror can't hold
+          # the job.
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80retries > /dev/null
+          lists=$(ls /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2> /dev/null || true)
+          sudo sed -i -e 's#http://\(archive\|security\).ubuntu.com#http://azure.archive.ubuntu.com#' $lists
+          for attempt in 1 2 3; do
+            timeout 300 sudo apt-get update -qq && timeout 900 sudo apt-get install -y -qq --no-install-recommends \
+              build-essential pkg-config libffi-dev libssl-dev zlib1g-dev libbz2-dev liblzma-dev libsqlite3-dev > /dev/null && break
+            [ "$attempt" = 3 ] && exit 1
+            [ "$attempt" = 1 ] && sudo sed -i 's#http://azure\.archive\.ubuntu\.com#http://archive.ubuntu.com#' $lists
+            sleep 10
+          done
+
+      - name: Build CPython
+        if: env.SKIP != 'true' && steps.name.outputs.built != 'true'
+        env:
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bash lumtub/android/packaging/python-arm32.sh "$RUNNER_TEMP/python" "$PWD/dist/$TAG.tar.gz"
+          tar -tzf "dist/$TAG.tar.gz" | grep -E '^(\./)?prefix/lib/libpython3\.[0-9]+\.so$'
+          (cd dist && sha256sum -- "$TAG.tar.gz" | tee "$TAG.tar.gz.sha256")
+
+      - name: Publish
+        if: env.SKIP != 'true' && steps.name.outputs.built != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          set -euo pipefail
+          lumtub=$(git -C lumtub rev-parse HEAD)
+          printf 'CPython %s for Android armeabi-v7a (arm-linux-androideabi), built by CPython'"'"'s Android/android.py from commit %s, from Lumtub %s. PSF License; see the tarball for the libraries it carries.\n' \
+            "$PYTHON_ANDROID_VERSION" "$PYTHON_ANDROID_SOURCE_COMMIT" "$lumtub" > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA" -- dist/*
